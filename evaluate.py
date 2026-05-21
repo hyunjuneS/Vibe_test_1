@@ -128,7 +128,7 @@ evaluators = [
 
 def fetch_traces_as_dataframe() -> pd.DataFrame:
     """Phoenix에서 트레이스를 가져와 평가용 DataFrame으로 변환합니다."""
-    spans_df = phoenix_client.get_spans_dataframe(project_name=PROJECT_NAME)
+    spans_df = phoenix_client.spans.get_spans_dataframe(project_name=PROJECT_NAME)
 
     if spans_df is None or spans_df.empty:
         print("경고: Phoenix에서 트레이스를 찾을 수 없습니다.")
