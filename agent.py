@@ -1,18 +1,17 @@
-import os
 import ast
 import json
 import operator as op
 import re
 from collections import Counter
 
+from config import OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL_NAME, PHOENIX_ENDPOINT, PROJECT_NAME
+
 # ── 1. Phoenix OTEL 등록 (openai import 전에 반드시 먼저 실행) ──────────────
 from phoenix.otel import register
 
-PROJECT_NAME = "phoenix-demo-에이전트"
-
 tracer_provider = register(
     project_name=PROJECT_NAME,
-    endpoint="http://localhost:6006/v1/traces",
+    endpoint=PHOENIX_ENDPOINT,
 )
 
 # ── 2. OpenAI 클라이언트 + 자동 계측 ─────────────────────────────────────────
@@ -22,10 +21,10 @@ from openinference.instrumentation.openai import OpenAIInstrumentor
 OpenAIInstrumentor().instrument()
 
 client = OpenAI(
-    api_key=os.environ.get("OPENAI_API_KEY", "sk-placeholder"),
-    base_url=os.environ.get("OPENAI_BASE_URL", "http://localhost:8000/v1"),
+    api_key=OPENAI_API_KEY,
+    base_url=OPENAI_BASE_URL,
 )
-MODEL_NAME = os.environ.get("OPENAI_MODEL_NAME", "gpt-4o")
+MODEL_NAME = OPENAI_MODEL_NAME
 
 # ── 3. 도구 구현 ──────────────────────────────────────────────────────────────
 
