@@ -1,0 +1,6 @@
+arize-phoenix
+openai
+openinference-instrumentation-openai
+opentelemetry-sdk
+opentelemetry-exporter-otlp
+pandas
