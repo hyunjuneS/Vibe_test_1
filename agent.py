@@ -15,10 +15,13 @@ tracer_provider = register(
 )
 
 # ── 2. OpenAI 클라이언트 + 자동 계측 ─────────────────────────────────────────
+from opentelemetry import trace as otel_trace
 from openai import OpenAI
 from openinference.instrumentation.openai import OpenAIInstrumentor
 
 OpenAIInstrumentor().instrument()
+
+tracer = otel_trace.get_tracer(__name__)
 
 client = OpenAI(
     api_key=OPENAI_API_KEY,
@@ -57,34 +60,42 @@ def _eval_node(node):
 
 def calculator(expression: str) -> str:
     """산술 표현식을 안전하게 계산합니다 (AST 화이트리스트 방식)."""
-    try:
-        tree = ast.parse(expression.strip(), mode="eval")
-        result = _eval_node(tree.body)
-        return json.dumps({"표현식": expression, "결과": result}, ensure_ascii=False)
-    except ZeroDivisionError:
-        return json.dumps({"오류": "0으로 나눌 수 없습니다"}, ensure_ascii=False)
-    except Exception as e:
-        return json.dumps({"오류": str(e)}, ensure_ascii=False)
+    with tracer.start_as_current_span("tool.calculator") as span:
+        span.set_attribute("tool.input", expression)
+        try:
+            tree = ast.parse(expression.strip(), mode="eval")
+            result = _eval_node(tree.body)
+            output = json.dumps({"표현식": expression, "결과": result}, ensure_ascii=False)
+        except ZeroDivisionError:
+            output = json.dumps({"오류": "0으로 나눌 수 없습니다"}, ensure_ascii=False)
+        except Exception as e:
+            output = json.dumps({"오류": str(e)}, ensure_ascii=False)
+        span.set_attribute("tool.output", output)
+        return output
 
 
 def text_analyzer(text: str) -> str:
     """한국어/영어 텍스트를 분석합니다 (어절 기반, 외부 라이브러리 불필요)."""
-    sentences = [s.strip() for s in re.split(r"[.!?。！？]+", text) if s.strip()]
-    words = text.split()
-    word_count = len(words)
-    avg_word_len = round(sum(len(w) for w in words) / word_count, 2) if words else 0
+    with tracer.start_as_current_span("tool.text_analyzer") as span:
+        span.set_attribute("tool.input", text)
+        sentences = [s.strip() for s in re.split(r"[.!?。！？]+", text) if s.strip()]
+        words = text.split()
+        word_count = len(words)
+        avg_word_len = round(sum(len(w) for w in words) / word_count, 2) if words else 0
 
-    clean = [re.sub(r"[^\w가-힣]", "", w).lower() for w in words]
-    clean = [w for w in clean if len(w) > 1]
-    top_words = [{"단어": w, "빈도": c} for w, c in Counter(clean).most_common(5)]
+        clean = [re.sub(r"[^\w가-힣]", "", w).lower() for w in words]
+        clean = [w for w in clean if len(w) > 1]
+        top_words = [{"단어": w, "빈도": c} for w, c in Counter(clean).most_common(5)]
 
-    result = {
-        "단어_수": word_count,
-        "문장_수": len(sentences),
-        "평균_단어_길이": avg_word_len,
-        "빈출_단어_Top5": top_words,
-    }
-    return json.dumps(result, ensure_ascii=False)
+        result = {
+            "단어_수": word_count,
+            "문장_수": len(sentences),
+            "평균_단어_길이": avg_word_len,
+            "빈출_단어_Top5": top_words,
+        }
+        output = json.dumps(result, ensure_ascii=False)
+        span.set_attribute("tool.output", output)
+        return output
 
 
 # ── 4. OpenAI function calling 스키마 ────────────────────────────────────────
