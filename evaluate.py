@@ -1,12 +1,12 @@
 import pandas as pd
-import phoenix as px
+from phoenix.client import Client
 from phoenix.evals import ClassificationEvaluator, LLM, evaluate_dataframe
 
 from config import OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL_NAME, PHOENIX_HOST, PROJECT_NAME
 
 # ── 1. Phoenix 클라이언트 및 평가 LLM 설정 ────────────────────────────────────
 
-phoenix_client = px.Client(endpoint=PHOENIX_HOST)
+phoenix_client = Client()
 
 eval_llm = LLM(
     provider="openai",
@@ -128,7 +128,7 @@ evaluators = [
 
 def fetch_traces_as_dataframe() -> pd.DataFrame:
     """Phoenix에서 트레이스를 가져와 평가용 DataFrame으로 변환합니다."""
-    spans_df = phoenix_client.get_spans_dataframe(project_name=PROJECT_NAME)
+    spans_df = phoenix_client.spans.get_spans_dataframe(project_name=PROJECT_NAME)
 
     if spans_df is None or spans_df.empty:
         print("경고: Phoenix에서 트레이스를 찾을 수 없습니다.")
@@ -159,12 +159,24 @@ def run_evaluations(eval_df: pd.DataFrame) -> pd.DataFrame:
         dataframe=eval_df,
         evaluators=evaluators,
     )
-    # 각 지표별 점수 요약 출력
+    # 각 지표별 점수 요약 출력 (Score 객체에서 숫자값 추출)
     score_cols = [c for c in results_df.columns if c.endswith("_score")]
     for col in score_cols:
         name = col.replace("_score", "")
-        mean_score = results_df[col].mean()
-        print(f"  [{name}] 평균 점수: {mean_score:.2f}")
+        scores = results_df[col].dropna()
+        if scores.empty:
+            continue
+        first = scores.iloc[0]
+        if isinstance(first, dict):
+            values = scores.apply(lambda s: s.get("value") if isinstance(s, dict) else s)
+        elif hasattr(first, "value"):
+            values = scores.apply(lambda s: s.value)
+        else:
+            values = scores
+        try:
+            print(f"  [{name}] 평균 점수: {values.mean():.2f}")
+        except Exception:
+            print(f"  [{name}] 결과: {scores.tolist()}")
     return results_df
 
 
