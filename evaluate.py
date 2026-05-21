@@ -159,12 +159,24 @@ def run_evaluations(eval_df: pd.DataFrame) -> pd.DataFrame:
         dataframe=eval_df,
         evaluators=evaluators,
     )
-    # 각 지표별 점수 요약 출력
+    # 각 지표별 점수 요약 출력 (Score 객체에서 숫자값 추출)
     score_cols = [c for c in results_df.columns if c.endswith("_score")]
     for col in score_cols:
         name = col.replace("_score", "")
-        mean_score = results_df[col].mean()
-        print(f"  [{name}] 평균 점수: {mean_score:.2f}")
+        scores = results_df[col].dropna()
+        if scores.empty:
+            continue
+        first = scores.iloc[0]
+        if isinstance(first, dict):
+            values = scores.apply(lambda s: s.get("value") if isinstance(s, dict) else s)
+        elif hasattr(first, "value"):
+            values = scores.apply(lambda s: s.value)
+        else:
+            values = scores
+        try:
+            print(f"  [{name}] 평균 점수: {values.mean():.2f}")
+        except Exception:
+            print(f"  [{name}] 결과: {scores.tolist()}")
     return results_df
 
 
