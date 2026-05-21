@@ -1,18 +1,18 @@
-import os
 import pandas as pd
 import phoenix as px
-from phoenix.evals import OpenAIModel, llm_classify
+from phoenix.evals import ClassificationEvaluator, LLM, evaluate_dataframe
 
-# ── 1. Phoenix 클라이언트 및 평가 모델 설정 ───────────────────────────────────
+from config import OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL_NAME, PHOENIX_HOST, PROJECT_NAME
 
-PROJECT_NAME = "phoenix-demo-에이전트"
+# ── 1. Phoenix 클라이언트 및 평가 LLM 설정 ────────────────────────────────────
 
-phoenix_client = px.Client(endpoint="http://localhost:6006")
+phoenix_client = px.Client(endpoint=PHOENIX_HOST)
 
-eval_model = OpenAIModel(
-    model=os.environ.get("OPENAI_MODEL_NAME", "gpt-4o"),
-    api_key=os.environ.get("OPENAI_API_KEY", "sk-placeholder"),
-    base_url=os.environ.get("OPENAI_BASE_URL", "http://localhost:8000/v1"),
+eval_llm = LLM(
+    provider="openai",
+    model=OPENAI_MODEL_NAME,
+    api_key=OPENAI_API_KEY,
+    base_url=OPENAI_BASE_URL,
 )
 
 # ── 2. 한국어 평가 프롬프트 템플릿 ───────────────────────────────────────────
@@ -30,7 +30,7 @@ COMPLETENESS_TEMPLATE = """당신은 AI 답변의 완결성을 평가하는 전�
 - 누락된 중요한 정보가 없는가?
 - 필요한 계산이나 분석이 완전히 수행되었는가?
 
-다음 중 하나로만 답하세요 (다른 말은 절대 하지 마세요):
+위 기준을 바탕으로 다음 중 하나로만 답하세요:
 완전
 부분적
 불완전"""
@@ -48,7 +48,7 @@ RELEVANCE_TEMPLATE = """당신은 AI 답변의 관련성을 평가하는 전문 
 - 불필요하거나 관련 없는 내용이 포함되지 않았는가?
 - 답변이 질문의 의도를 올바르게 파악하고 있는가?
 
-다음 중 하나로만 답하세요 (다른 말은 절대 하지 마세요):
+위 기준을 바탕으로 다음 중 하나로만 답하세요:
 관련
 부분관련
 무관"""
@@ -66,7 +66,7 @@ HELPFULNESS_TEMPLATE = """당신은 AI 답변의 유용성을 평가하는 전�
 - 답변이 실행 가능하거나 이해하기 쉬운 정보를 제공하는가?
 - 사용자가 이 답변을 통해 실질적인 도움을 받을 수 있는가?
 
-다음 중 하나로만 답하세요 (다른 말은 절대 하지 마세요):
+위 기준을 바탕으로 다음 중 하나로만 답하세요:
 매우유용
 유용
 보통
@@ -85,35 +85,45 @@ CONCISENESS_TEMPLATE = """당신은 AI 답변의 간결성을 평가하는 전�
 - 불필요한 반복이나 장황한 설명이 없는가?
 - 핵심 내용이 명확하고 간결하게 전달되는가?
 
-다음 중 하나로만 답하세요 (다른 말은 절대 하지 마세요):
+위 기준을 바탕으로 다음 중 하나로만 답하세요:
 간결
 적당
 장황"""
 
-EVAL_CONFIGS = [
-    {
-        "name": "완결성",
-        "template": COMPLETENESS_TEMPLATE,
-        "labels": ["완전", "부분적", "불완전"],
-    },
-    {
-        "name": "관련성",
-        "template": RELEVANCE_TEMPLATE,
-        "labels": ["관련", "부분관련", "무관"],
-    },
-    {
-        "name": "유용성",
-        "template": HELPFULNESS_TEMPLATE,
-        "labels": ["매우유용", "유용", "보통", "유용하지않음"],
-    },
-    {
-        "name": "간결성",
-        "template": CONCISENESS_TEMPLATE,
-        "labels": ["간결", "적당", "장황"],
-    },
+# ── 3. 평가기 정의 ────────────────────────────────────────────────────────────
+
+evaluators = [
+    ClassificationEvaluator(
+        name="완결성",
+        llm=eval_llm,
+        prompt_template=COMPLETENESS_TEMPLATE,
+        choices={"완전": 1.0, "부분적": 0.5, "불완전": 0.0},
+        include_explanation=True,
+    ),
+    ClassificationEvaluator(
+        name="관련성",
+        llm=eval_llm,
+        prompt_template=RELEVANCE_TEMPLATE,
+        choices={"관련": 1.0, "부분관련": 0.5, "무관": 0.0},
+        include_explanation=True,
+    ),
+    ClassificationEvaluator(
+        name="유용성",
+        llm=eval_llm,
+        prompt_template=HELPFULNESS_TEMPLATE,
+        choices={"매우유용": 1.0, "유용": 0.75, "보통": 0.5, "유용하지않음": 0.0},
+        include_explanation=True,
+    ),
+    ClassificationEvaluator(
+        name="간결성",
+        llm=eval_llm,
+        prompt_template=CONCISENESS_TEMPLATE,
+        choices={"간결": 1.0, "적당": 0.5, "장황": 0.0},
+        include_explanation=True,
+    ),
 ]
 
-# ── 3. 트레이스 가져오기 ──────────────────────────────────────────────────────
+# ── 4. 트레이스 가져오기 ──────────────────────────────────────────────────────
 
 
 def fetch_traces_as_dataframe() -> pd.DataFrame:
@@ -125,7 +135,6 @@ def fetch_traces_as_dataframe() -> pd.DataFrame:
         print("먼저 agent.py를 실행하여 트레이스를 생성하세요: python agent.py")
         return pd.DataFrame()
 
-    # input/output 컬럼 확인
     input_col = next((c for c in spans_df.columns if "input" in c.lower() and "value" in c.lower()), None)
     output_col = next((c for c in spans_df.columns if "output" in c.lower() and "value" in c.lower()), None)
 
@@ -140,68 +149,51 @@ def fetch_traces_as_dataframe() -> pd.DataFrame:
     return eval_df[["input", "output"]].reset_index(drop=True)
 
 
-# ── 4. 평가 실행 ──────────────────────────────────────────────────────────────
+# ── 5. 평가 실행 ──────────────────────────────────────────────────────────────
 
 
-def run_evaluations(eval_df: pd.DataFrame) -> dict:
-    """4가지 평가 지표로 LLM-as-judge 평가를 실행합니다."""
-    results = {}
-
-    for config in EVAL_CONFIGS:
-        print(f"\n[{config['name']}] 평가 실행 중...")
-        result_df = llm_classify(
-            dataframe=eval_df,
-            template=config["template"],
-            model=eval_model,
-            rails=config["labels"],
-            provide_explanation=True,
-            concurrency=4,
-        )
-        results[config["name"]] = result_df
-        label_counts = result_df["label"].value_counts().to_dict()
-        print(f"  결과 분포: {label_counts}")
-
-    return results
-
-
-# ── 5. 결과 저장 및 Phoenix 업로드 ───────────────────────────────────────────
-
-
-def save_results(eval_df: pd.DataFrame, results: dict) -> None:
-    """평가 결과를 Phoenix에 업로드하고, 실패 시 CSV로 저장합니다."""
-    upload_success = False
-
-    for metric_name, result_df in results.items():
-        try:
-            phoenix_client.log_evaluations(
-                evaluations=result_df,
-                project_name=PROJECT_NAME,
-                eval_name=metric_name,
-            )
-            print(f"[{metric_name}] Phoenix 업로드 완료")
-            upload_success = True
-        except Exception as e:
-            print(f"[{metric_name}] Phoenix 업로드 실패: {e}")
-
-    # CSV 폴백: 항상 로컬에도 저장
-    all_results = pd.concat(
-        [df.assign(지표=name, 질문=eval_df["input"].values, 답변=eval_df["output"].values)
-         for name, df in results.items()],
-        ignore_index=True,
+def run_evaluations(eval_df: pd.DataFrame) -> pd.DataFrame:
+    """4가지 평가기를 한 번에 실행하고 결과 DataFrame을 반환합니다."""
+    print("\n평가 실행 중... (완결성 / 관련성 / 유용성 / 간결성)")
+    results_df = evaluate_dataframe(
+        dataframe=eval_df,
+        evaluators=evaluators,
     )
+    # 각 지표별 점수 요약 출력
+    score_cols = [c for c in results_df.columns if c.endswith("_score")]
+    for col in score_cols:
+        name = col.replace("_score", "")
+        mean_score = results_df[col].mean()
+        print(f"  [{name}] 평균 점수: {mean_score:.2f}")
+    return results_df
+
+
+# ── 6. 결과 저장 및 Phoenix 업로드 ───────────────────────────────────────────
+
+
+def save_results(eval_df: pd.DataFrame, results_df: pd.DataFrame) -> None:
+    """평가 결과를 Phoenix에 업로드하고, 항상 CSV로도 저장합니다."""
+    try:
+        phoenix_client.log_evaluations(
+            evaluations=results_df,
+            project_name=PROJECT_NAME,
+        )
+        print("\nPhoenix 업로드 완료")
+    except Exception as e:
+        print(f"\nPhoenix 업로드 실패: {e}")
+        print("※ CSV 파일을 Phoenix UI에서 직접 import하세요.")
+
     output_path = "evaluation_results.csv"
-    all_results.to_csv(output_path, index=False, encoding="utf-8-sig")
-    print(f"\n평가 결과 CSV 저장 완료: {output_path}")
-
-    if not upload_success:
-        print("※ Phoenix 업로드에 실패했습니다. CSV 파일을 Phoenix UI에서 직접 import하세요.")
+    combined = pd.concat([eval_df, results_df], axis=1)
+    combined.to_csv(output_path, index=False, encoding="utf-8-sig")
+    print(f"평가 결과 CSV 저장 완료: {output_path}")
 
 
-# ── 6. 메인 ──────────────────────────────────────────────────────────────────
+# ── 7. 메인 ──────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     print("Phoenix 트레이스 평가 시작")
-    print(f"Phoenix 서버: http://localhost:6006")
+    print(f"Phoenix 서버: {PHOENIX_HOST}")
     print(f"프로젝트: {PROJECT_NAME}")
     print("=" * 60)
 
@@ -212,9 +204,9 @@ if __name__ == "__main__":
         print("  python agent.py")
         raise SystemExit(1)
 
-    results = run_evaluations(eval_df)
-    save_results(eval_df, results)
+    results_df = run_evaluations(eval_df)
+    save_results(eval_df, results_df)
 
     print("\n" + "=" * 60)
     print("평가 완료! Phoenix UI에서 결과를 확인하세요:")
-    print("  http://localhost:6006")
+    print(f"  {PHOENIX_HOST}")

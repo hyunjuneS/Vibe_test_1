@@ -1,0 +1,8 @@
+openai:
+  api_key: "your-api-key-here"
+  base_url: "http://localhost:8000/v1"
+  model_name: "gpt-4o"
+
+phoenix:
+  host: "http://localhost:6006"
+  project_name: "phoenix-demo-에이전트"
