@@ -1,12 +1,12 @@
 import pandas as pd
-import phoenix as px
+from phoenix import Client
 from phoenix.evals import ClassificationEvaluator, LLM, evaluate_dataframe
 
 from config import OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL_NAME, PHOENIX_HOST, PROJECT_NAME
 
 # ── 1. Phoenix 클라이언트 및 평가 LLM 설정 ────────────────────────────────────
 
-phoenix_client = px.Client(endpoint=PHOENIX_HOST)
+phoenix_client = Client(base_url=PHOENIX_HOST)
 
 eval_llm = LLM(
     provider="openai",
